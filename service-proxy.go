@@ -120,15 +120,15 @@ func (p *HTTPServiceProxy) getApi(key string) *ServiceApi {
 	return nil
 }
 
-func (p *HTTPServiceProxy) Request(apiKey string, opts *RequestOptions) (result []byte, err error) {
+func (p *HTTPServiceProxy) Request(opts *RequestOptions) (result []byte, err error) {
 	var (
 		req  *http.Request
 		body *bytes.Reader
 	)
 
-	api := p.getApi(apiKey)
+	api := p.getApi(opts.ApiKey)
 	if api == nil {
-		return nil, errors.New(fmt.Sprintf("Invalid API key: %s", apiKey))
+		return nil, errors.New(fmt.Sprintf("Invalid API key: %s", opts.ApiKey))
 	}
 
 	if opts.Body != nil {
@@ -159,8 +159,8 @@ func (p *HTTPServiceProxy) Request(apiKey string, opts *RequestOptions) (result 
 	return p.RawRequest(req)
 }
 
-func (p *HTTPServiceProxy) JSON(apiKey string, opts *RequestOptions, result interface{}) error {
-	data, err := p.Request(apiKey, opts)
+func (p *HTTPServiceProxy) JSON(opts *RequestOptions, result interface{}) error {
+	data, err := p.Request(opts)
 	if err != nil {
 		return err
 	}
