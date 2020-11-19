@@ -28,6 +28,14 @@ type HTTPServiceProxyOptions struct {
 	APIs         map[string]ServiceApi
 }
 
+type RequestOptions struct {
+	ApiKey  string
+	Query   map[string]string
+	Body    []byte
+	Form    map[string]string
+	Headers map[string]string
+}
+
 func NewHTTPServiceProxy(opts HTTPServiceProxyOptions) *HTTPServiceProxy {
 	apis := make(map[string]ServiceApi)
 
@@ -112,24 +120,47 @@ func (p *HTTPServiceProxy) getApi(key string) *ServiceApi {
 	return nil
 }
 
-func (p *HTTPServiceProxy) Request(apiKey string, body []byte, headers map[string]string) (result []byte, err error) {
+func (p *HTTPServiceProxy) Request(apiKey string, opts *RequestOptions) (result []byte, err error) {
+	var (
+		req  *http.Request
+		body *bytes.Reader
+	)
+
 	api := p.getApi(apiKey)
 	if api == nil {
 		return nil, errors.New(fmt.Sprintf("Invalid API key: %s", apiKey))
 	}
 
-	req, err := http.NewRequest(api.Method, p.getUrlStr(api.Path, nil), bytes.NewReader(body))
+	if opts.Body != nil {
+		body = bytes.NewReader(opts.Body)
+	}
 
-	header := make(http.Header)
-	for key, val := range headers {
-		header.Set(key, val)
+	req, err = http.NewRequest(api.Method, p.getUrlStr(api.Path, opts.Query), body)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.Headers != nil {
+		header := make(http.Header)
+		for key, val := range opts.Headers {
+			header.Set(key, val)
+		}
+		req.Header = header
+	}
+
+	if opts.Form != nil {
+		form := make(url.Values)
+		for key, val := range opts.Form {
+			form.Add(key, val)
+		}
+		req.Form = form
 	}
 
 	return p.RawRequest(req)
 }
 
-func (p *HTTPServiceProxy) JSON(apiKey string, body []byte, headers map[string]string, result interface{}) error {
-	data, err := p.Request(apiKey, body, headers)
+func (p *HTTPServiceProxy) JSON(apiKey string, opts *RequestOptions, result interface{}) error {
+	data, err := p.Request(apiKey, opts)
 	if err != nil {
 		return err
 	}
