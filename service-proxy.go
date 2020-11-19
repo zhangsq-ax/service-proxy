@@ -8,6 +8,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"reflect"
+	"strings"
 )
 
 type ServiceApi struct {
@@ -31,8 +33,7 @@ type HTTPServiceProxyOptions struct {
 type RequestOptions struct {
 	ApiKey  string
 	Query   map[string]string
-	Body    []byte
-	Form    map[string]string
+	Body    interface{} // []byte, string, map[string]string, struct
 	Headers map[string]string
 }
 
@@ -122,8 +123,8 @@ func (p *HTTPServiceProxy) getApi(key string) *ServiceApi {
 
 func (p *HTTPServiceProxy) Request(opts *RequestOptions) (result []byte, err error) {
 	var (
-		req  *http.Request
-		body *bytes.Reader
+		req *http.Request
+		//body *bytes.Reader
 	)
 
 	api := p.getApi(opts.ApiKey)
@@ -131,29 +132,28 @@ func (p *HTTPServiceProxy) Request(opts *RequestOptions) (result []byte, err err
 		return nil, errors.New(fmt.Sprintf("Invalid API key: %s", opts.ApiKey))
 	}
 
-	if opts.Body != nil {
+	/* if opts.Body != nil {
 		body = bytes.NewReader(opts.Body)
-	}
+	} */
 
-	req, err = http.NewRequest(api.Method, p.getUrlStr(api.Path, opts.Query), body)
+	req, err = http.NewRequest(api.Method, p.getUrlStr(api.Path, opts.Query), nil)
 	if err != nil {
 		return nil, err
 	}
 
+	header := make(http.Header)
 	if opts.Headers != nil {
-		header := make(http.Header)
 		for key, val := range opts.Headers {
 			header.Set(key, val)
 		}
-		req.Header = header
 	}
+	req.Header = header
 
-	if opts.Form != nil {
-		form := make(url.Values)
-		for key, val := range opts.Form {
-			form.Add(key, val)
+	if opts.Body != nil {
+		err = processBody(req, opts.Body)
+		if err != nil {
+			return nil, err
 		}
-		req.Form = form
 	}
 
 	return p.RawRequest(req)
@@ -166,4 +166,50 @@ func (p *HTTPServiceProxy) JSON(opts *RequestOptions, result interface{}) error 
 	}
 
 	return json.Unmarshal(data, result)
+}
+
+func processBody(req *http.Request, body interface{}) error {
+	// string
+	if str, ok := body.(string); ok {
+		req.Body = ioutil.NopCloser(strings.NewReader(str))
+		req.ContentLength = int64(len(str))
+		return nil
+	}
+
+	// []byte
+	if b, ok := body.([]byte); ok {
+		req.Body = ioutil.NopCloser(bytes.NewReader(b))
+		req.ContentLength = int64(len(b))
+		return nil
+	}
+
+	// map[string]string
+	if m, ok := body.(map[string]string); ok {
+		err := req.ParseForm()
+		if err != nil {
+			return nil
+		}
+		for key, val := range m {
+			req.Form.Add(key, val)
+		}
+
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return nil
+	}
+
+	// struct
+	rBody := reflect.TypeOf(body)
+	if rBody.Kind().String() == "struct" {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+
+		req.Body = ioutil.NopCloser(bytes.NewReader(b))
+		req.ContentLength = int64(len(b))
+		req.Header.Set("Content-Type", "application/json")
+		return nil
+	} else {
+		return errors.New(fmt.Sprintf("Illegal the body type: only string, []byte, map[string]string, struct supported"))
+	}
 }
